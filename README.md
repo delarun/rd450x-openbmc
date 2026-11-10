@@ -22,7 +22,7 @@ the recovery section before you start.
 | Serial over LAN (host COM1) | Works |
 | Host IPMI over KCS (port 0xCA2) | Works, device ID is a placeholder |
 | Mainboard FRU inventory, LEDs | Works |
-| Virtual media (ISO over USB) | In progress |
+| Virtual media (ISO over USB) | Works (about 0.9 MB/s) |
 | BIOS flashing from the BMC | Not implemented |
 | PSU telemetry, CPU/DIMM inventory | Not implemented |
 | Dedicated IPMI LAN port | Untested |

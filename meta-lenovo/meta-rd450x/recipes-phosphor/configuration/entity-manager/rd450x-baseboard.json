@@ -21,7 +21,8 @@
                     "Value": 90
                 }
             ],
-            "Type": "IpmbSensor"
+            "Type": "IpmbSensor",
+            "PollRate": 2.0
         },
         {
             "Address": "0x1",
@@ -44,7 +45,8 @@
                     "Value": 90
                 }
             ],
-            "Type": "IpmbSensor"
+            "Type": "IpmbSensor",
+            "PollRate": 2.0
         },
         {
             "Address": "0x8",
@@ -65,7 +67,8 @@
                     "Value": 100
                 }
             ],
-            "Type": "IpmbSensor"
+            "Type": "IpmbSensor",
+            "PollRate": 2.0
         }
     ],
     "Name": "RD450X Chassis",
