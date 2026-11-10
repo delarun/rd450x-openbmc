@@ -23,7 +23,7 @@ the recovery section before you start.
 | Host IPMI over KCS (port 0xCA2) | Works, device ID is a placeholder |
 | Mainboard FRU inventory, LEDs | Works |
 | Virtual media (ISO over USB) | Works (about 0.9 MB/s) |
-| BIOS flashing from the BMC | Not implemented |
+| BIOS flashing from the BMC (`rd450x-bios`, BIOS region only) | Implemented, not yet verified on hardware |
 | PSU telemetry, CPU/DIMM inventory | Not implemented |
 | Dedicated IPMI LAN port | Untested |
 

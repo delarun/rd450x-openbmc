@@ -1,0 +1,3 @@
+# "bios-spi-host" is the select line of the host BIOS flash mux, not a LED:
+# keep the LED daemons away from it. Only rd450x-bios switches it.
+SUBSYSTEM=="leds", KERNEL=="bios-spi-host", ENV{SYSTEMD_WANTS}=""

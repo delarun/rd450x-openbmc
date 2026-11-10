@@ -66,6 +66,23 @@
 		fault {
 			gpios = <&gpio ASPEED_GPIO(H, 3) GPIO_ACTIVE_LOW>;
 		};
+
+		/*
+		 * Not a LED: the select line of the mux in front of the host
+		 * BIOS flash. High ("on") = the host owns its flash, low = the
+		 * BMC does. It is modelled as a LED because that is the one
+		 * stock driver that drives a line to a safe level as soon as the
+		 * kernel starts (also when userspace never comes up, and the
+		 * host is the only way to recover a broken BMC) and still lets
+		 * userspace switch it. Only rd450x-bios may turn it off.
+		 * retain-state-shutdown: the driver would otherwise pull the
+		 * line low on every BMC reboot.
+		 */
+		bios-spi-host {
+			gpios = <&gpio ASPEED_GPIO(H, 6) GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+			retain-state-shutdown;
+		};
 	};
 
 	/* 3.3V standby, 5V aux, 3.3V, 5V, 12V (through resistor dividers) */
@@ -124,6 +141,46 @@
 			rwfs@1e00000 {
 				reg = <0x1e00000 0x200000>;
 				label = "rwfs";
+			};
+		};
+	};
+};
+
+/*
+ * Host BIOS flash (16 MB, Intel flash descriptor layout) behind a mux that
+ * GPIOH6 controls; the stock firmware uses this controller in the same way.
+ * While the host owns the flash nothing answers here, so the probe at boot
+ * fails with an "unrecognized JEDEC id" message. rd450x-bios switches the
+ * mux with the host powered off and binds the driver by hand.
+ *
+ * The partitions follow the flash descriptor found on the board; rd450x-bios
+ * checks the descriptor before it writes. The descriptor and the ME region
+ * are never written from the BMC.
+ */
+&spi {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_spi1_default>;
+
+	flash@0 {
+		status = "okay";
+		label = "bios";
+		spi-max-frequency = <25000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			descriptor-me@0 {
+				reg = <0x0 0x400000>;
+				label = "bios-me";
+				read-only;
+			};
+
+			bios-region@400000 {
+				reg = <0x400000 0xc00000>;
+				label = "bios-region";
 			};
 		};
 	};
@@ -311,13 +368,7 @@
 			"MEM_EVENT_N",
 	/*Q0-Q7*/	"", "", "", "", "", "", "PSU1_PRSNT_N", "PSU2_PRSNT_N";
 
-	/* High = host owns its BIOS flash. Never leave this low. */
-	bios-spi-sel-hog {
-		gpio-hog;
-		gpios = <ASPEED_GPIO(H, 6) GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "BIOS_SPI_SEL";
-	};
+	/* BIOS_SPI_SEL (H6) is driven by the "bios-spi-host" node under leds. */
 
 	/* Keeps the NC-SI path on the onboard NIC, as found on the live board */
 	ncsi-sel-hog {

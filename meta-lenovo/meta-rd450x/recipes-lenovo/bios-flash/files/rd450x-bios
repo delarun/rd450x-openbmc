@@ -1,0 +1,266 @@
+#!/bin/sh
+# Read or write the host BIOS flash of the Lenovo RD450X from the BMC.
+#
+# The 16 MB host flash sits behind a mux. With the host powered off this
+# script hands the flash to the BMC (GPIOH6 low), binds the spi-nor driver
+# to it, does its work and gives the flash back. Only the BIOS region of the
+# Intel flash descriptor layout is ever written; the descriptor and the ME
+# region are left alone.
+
+set -u
+
+SEL=/sys/class/leds/bios-spi-host/brightness
+NOR=/sys/bus/spi/drivers/spi-nor
+POWER_UNIT=xyz.openbmc_project.Chassis.Control.Power@0.service
+LOCK=/run/rd450x-bios.lock
+FLASH_SIZE=16777216
+REGION_BLOCK=64			# BIOS region offset 0x400000 in 64 KiB blocks
+BACKUP=/tmp/rd450x-bios-before-write.bin
+
+dev=
+locked=0
+attached=0
+power_stopped=0
+tmp=
+
+say() { echo "rd450x-bios: $*"; }
+die() { echo "rd450x-bios: $*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+Usage: rd450x-bios COMMAND [FILE]
+
+  info            show the flash chip and the regions of its descriptor
+  backup FILE     save the whole flash (descriptor, ME and BIOS) to FILE
+  verify FILE     compare the BIOS region of the flash with the image FILE
+  write  FILE     write the BIOS region from the image FILE
+                  (--no-backup: do not save the old contents to
+                  $BACKUP first)
+
+FILE is a full 16 MB image with an Intel flash descriptor. The host has to
+be powered off; its power button is ignored while the script runs. Writing
+replaces the BIOS settings stored in the flash (NVRAM), including the UEFI
+boot entries.
+EOF
+    exit 2
+}
+
+spi_dev() {
+    for d in /sys/bus/spi/devices/*; do
+        case "$(readlink -f "$d/of_node" 2>/dev/null)" in
+        */spi@1e630000/flash@0)
+            basename "$d"
+            return 0
+            ;;
+        esac
+    done
+    return 1
+}
+
+mtd_of() {
+    sed -n "s/^\(mtd[0-9]*\):.*\"$1\"\$/\1/p" /proc/mtd
+}
+
+host_is_off() {
+    busctl get-property xyz.openbmc_project.State.Chassis \
+        /xyz/openbmc_project/state/chassis0 \
+        xyz.openbmc_project.State.Chassis CurrentPowerState 2>/dev/null |
+        grep -q 'PowerState\.Off"'
+}
+
+# Bytes of a file as a hex string: hexat FILE OFFSET COUNT
+hexat() {
+    hexdump -s "$2" -n "$3" -v -e '1/1 "%02x"' "$1"
+}
+
+# Refuse anything that is not a 16 MB image with the layout the partitions
+# in the device tree assume: BIOS region 0x400000..0xffffff.
+check_layout() {
+    [ "$(hexat "$1" 16 4)" = "5aa5f00f" ] ||
+        die "$2: no Intel flash descriptor signature"
+    [ "$(hexat "$1" 68 4)" = "0004ff0f" ] ||
+        die "$2: BIOS region is not 0x400000..0xffffff"
+}
+
+check_image() {
+    [ -f "$1" ] || die "$1: no such file"
+    [ "$(wc -c < "$1")" -eq "$FLASH_SIZE" ] ||
+        die "$1: not a $FLASH_SIZE byte image"
+    check_layout "$1" "$1"
+}
+
+me_query() {
+    busctl call xyz.openbmc_project.Ipmi.Channel.Ipmb \
+        /xyz/openbmc_project/Ipmi/Channel/Ipmb org.openbmc.Ipmb \
+        sendRequest yyyyay 1 6 0 "$1" 0 2>/dev/null
+}
+
+me_alive() {
+    # Get Device ID: status 0 and completion code 0
+    me_query 1 | grep -q '^(iyyyyay) 0 7 0 1 0 '
+}
+
+attach() {
+    [ -e "$SEL" ] || die "mux control $SEL not found"
+    dev=$(spi_dev) || die "BIOS SPI device not found"
+    host_is_off || die "the host must be powered off"
+    mkdir "$LOCK" 2>/dev/null || die "already running ($LOCK exists)"
+    locked=1
+
+    # Nobody may power the host on while it has no flash.
+    systemctl stop "$POWER_UNIT" || die "cannot stop $POWER_UNIT"
+    power_stopped=1
+
+    echo 0 > "$SEL" || die "cannot switch the flash mux"
+    attached=1
+    sleep 1
+    [ -e "/sys/bus/spi/devices/$dev/driver" ] ||
+        echo "$dev" > "$NOR/bind" 2>/dev/null ||
+        die "the flash chip does not answer"
+
+    i=0
+    while [ -z "$(mtd_of bios-region)" ]; do
+        i=$((i + 1))
+        [ "$i" -le 20 ] || die "no MTD device for the BIOS flash"
+        sleep 0.5
+    done
+    mtd_all=/dev/$(mtd_of bios)
+    mtd_me=/dev/$(mtd_of bios-me)
+    mtd_region=/dev/$(mtd_of bios-region)
+
+    dd if="$mtd_me" of="$tmp/fd" bs=4096 count=1 2>/dev/null ||
+        die "cannot read the flash descriptor"
+    check_layout "$tmp/fd" "flash"
+}
+
+detach() {
+    if [ -n "$dev" ] && [ -e "/sys/bus/spi/devices/$dev/driver" ]; then
+        sync
+        echo "$dev" > "$NOR/unbind"
+    fi
+    if [ "$attached" = 1 ]; then
+        echo 1 > "$SEL"
+        sleep 1
+        [ "$(cat "$SEL")" != 0 ] ||
+            echo "rd450x-bios: WARNING: the flash is still switched to" \
+                "the BMC; run: echo 1 > $SEL" >&2
+        attached=0
+    fi
+    if [ "$power_stopped" = 1 ]; then
+        systemctl start "$POWER_UNIT"
+        power_stopped=0
+    fi
+    [ -z "$tmp" ] || rm -rf "$tmp"
+    [ "$locked" != 1 ] || rmdir "$LOCK"
+    locked=0
+}
+
+region_differs() {
+    # 0: differs, 1: identical
+    if dd if="$1" bs=65536 skip="$REGION_BLOCK" 2>/dev/null |
+        cmp -s - "$mtd_region"; then
+        return 1
+    fi
+    return 0
+}
+
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+shift
+
+nobackup=0
+file=
+for a in "$@"; do
+    case "$a" in
+    --no-backup) nobackup=1 ;;
+    -*) usage ;;
+    *) [ -z "$file" ] || usage; file=$a ;;
+    esac
+done
+
+case "$cmd" in
+info) [ -z "$file" ] || usage ;;
+backup) [ -n "$file" ] || usage ;;
+verify | write) [ -n "$file" ] || usage; check_image "$file" ;;
+*) usage ;;
+esac
+
+tmp=$(mktemp -d /tmp/rd450x-bios.XXXXXX) || die "cannot create a work directory"
+trap detach EXIT
+trap 'exit 130' INT TERM HUP
+
+attach
+
+case "$cmd" in
+info)
+    say "chip: $(cat "/sys/bus/spi/devices/$dev/spi-nor/partname" 2>/dev/null)" \
+        "(JEDEC ID $(cat "/sys/bus/spi/devices/$dev/spi-nor/jedec_id" 2>/dev/null))"
+    say "descriptor region table: $(hexat "$tmp/fd" 64 12)"
+    grep '"bios' /proc/mtd
+    ;;
+
+backup)
+    say "reading 16 MB to $file"
+    dd if="$mtd_all" of="$file" bs=65536 2>/dev/null || die "read failed"
+    [ "$(wc -c < "$file")" -eq "$FLASH_SIZE" ] || die "short read"
+    sha256sum "$file"
+    ;;
+
+verify)
+    if region_differs "$file"; then
+        die "the BIOS region of the flash DIFFERS from $file"
+    fi
+    say "the BIOS region of the flash matches $file"
+    ;;
+
+write)
+    dd if="$file" of="$tmp/fd-new" bs=4096 count=1 2>/dev/null
+    cmp -s "$tmp/fd" "$tmp/fd-new" ||
+        die "the flash descriptor of $file differs from the one in the flash; refusing (the descriptor is never written)"
+
+    if ! region_differs "$file"; then
+        say "the flash already holds this BIOS; nothing written"
+        exit 0
+    fi
+
+    if [ "$nobackup" = 0 ]; then
+        say "saving the current flash to $BACKUP"
+        dd if="$mtd_all" of="$BACKUP" bs=65536 2>/dev/null ||
+            die "backup failed; nothing written"
+    fi
+
+    dd if="$file" of="$tmp/region" bs=65536 skip="$REGION_BLOCK" 2>/dev/null ||
+        die "cannot extract the BIOS region; nothing written"
+
+    say "writing the BIOS region (12 MB), do not interrupt"
+    flashcp -v "$tmp/region" "$mtd_region" ||
+        die "WRITE FAILED: the BIOS is incomplete. Run the command again; do not power the host on"
+    rm -f "$tmp/region"
+
+    if region_differs "$file"; then
+        die "VERIFY FAILED: the BIOS is incomplete. Run the command again; do not power the host on"
+    fi
+    say "written and verified"
+
+    detach
+    # The ME lost its flash for a while; restart it before the host boots.
+    me_query 2 > /dev/null
+    say "restarting the Intel ME"
+    i=0
+    sleep 10
+    until me_alive; do
+        i=$((i + 1))
+        if [ "$i" -gt 12 ]; then
+            say "WARNING: the ME does not answer yet"
+            break
+        fi
+        sleep 5
+    done
+    say "done; the host can be powered on"
+    exit 0
+    ;;
+esac
+
+detach
+me_alive || say "note: the Intel ME does not answer on IPMB right now"
+exit 0
