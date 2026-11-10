@@ -23,7 +23,7 @@ the recovery section before you start.
 | Host IPMI over KCS (port 0xCA2) | Works, device ID is a placeholder |
 | Mainboard FRU inventory, LEDs | Works |
 | Virtual media (ISO over USB) | Works (about 0.9 MB/s) |
-| BIOS flashing from the BMC (`rd450x-bios`, BIOS region only) | Implemented, not yet verified on hardware |
+| BIOS flashing from the BMC (`rd450x-bios`, BIOS region only) | Works (read, write and restore verified) |
 | PSU telemetry, CPU/DIMM inventory | Not implemented |
 | Dedicated IPMI LAN port | Untested |
 
@@ -97,6 +97,34 @@ ethaddr` / `eth1addr`, otherwise the BMC comes up with a random MAC.
 
 The default login is the OpenBMC development default (`root` / `0penBmc`).
 Change it.
+
+## Flashing the host BIOS from the BMC
+
+The 16 MB host flash (Intel flash descriptor layout) sits behind a mux that
+GPIOH6 controls. `rd450x-bios` on the BMC takes the flash while the host is
+powered off, and only then:
+
+```sh
+rd450x-bios info                 # chip and descriptor regions
+rd450x-bios backup /tmp/full.bin # whole flash, including the ME region
+rd450x-bios verify /tmp/new.rom  # compare the BIOS region
+rd450x-bios write  /tmp/new.rom  # write the BIOS region (about 2 minutes)
+```
+
+- Only the BIOS region (0x400000-0xffffff) is written. The descriptor and the
+  ME region are never touched, and an image with a different descriptor is
+  refused.
+- Writing replaces the NVRAM too: BIOS settings and UEFI boot entries come
+  from the image. Writing a `backup` file back restores them.
+- Copy the backup off the BMC: `/tmp` is a RAM disk.
+- The Intel ME keeps its data in the same flash. Taking the flash away while
+  the ME is still starting leaves it in recovery mode until the next ME reset,
+  so the script waits for a clean ME self test first and resets the ME after a
+  write.
+- The mux line is put back to "host" by the kernel on every BMC start, so an
+  interrupted run cannot leave the host without its flash. During testing the
+  BMC was reset by its watchdog once in the middle of a read; the cause was
+  not found and it did not happen again in further runs.
 
 ## Layout
 

@@ -95,9 +95,30 @@ me_query() {
         sendRequest yyyyay 1 6 0 "$1" 0 2>/dev/null
 }
 
-me_alive() {
-    # Get Device ID: status 0 and completion code 0
-    me_query 1 | grep -q '^(iyyyyay) 0 7 0 1 0 '
+# Get Self Test Results: status 0, completion code 0, result 55h 00h
+me_ok() {
+    me_query 4 | grep -q '^(iyyyyay) 0 7 0 4 0 2 85 0'
+}
+
+# wait_me SECONDS: wait until the ME reports a clean self test
+wait_me() {
+    n=0
+    until me_ok; do
+        n=$((n + 5))
+        [ "$n" -le "$1" ] || return 1
+        sleep 5
+    done
+    return 0
+}
+
+# The ME keeps its data in the same flash. Taking the flash away while the
+# ME is starting leaves it in recovery mode (seen on the board), so wait for
+# it before attaching and restart it afterwards if it is not healthy.
+me_restart() {
+    say "restarting the Intel ME"
+    me_query 2 > /dev/null
+    sleep 10
+    wait_me 90 || say "WARNING: the Intel ME does not report a clean self test"
 }
 
 attach() {
@@ -106,6 +127,8 @@ attach() {
     host_is_off || die "the host must be powered off"
     mkdir "$LOCK" 2>/dev/null || die "already running ($LOCK exists)"
     locked=1
+
+    wait_me 60 || say "note: the Intel ME is not healthy, going on without it"
 
     # Nobody may power the host on while it has no flash.
     systemctl stop "$POWER_UNIT" || die "cannot stop $POWER_UNIT"
@@ -244,23 +267,13 @@ write)
 
     detach
     # The ME lost its flash for a while; restart it before the host boots.
-    me_query 2 > /dev/null
-    say "restarting the Intel ME"
-    i=0
-    sleep 10
-    until me_alive; do
-        i=$((i + 1))
-        if [ "$i" -gt 12 ]; then
-            say "WARNING: the ME does not answer yet"
-            break
-        fi
-        sleep 5
-    done
+    me_restart
     say "done; the host can be powered on"
     exit 0
     ;;
 esac
 
 detach
-me_alive || say "note: the Intel ME does not answer on IPMB right now"
+sleep 3
+me_ok || me_restart
 exit 0
