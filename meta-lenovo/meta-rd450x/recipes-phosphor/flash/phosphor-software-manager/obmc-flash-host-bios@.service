@@ -1,0 +1,8 @@
+[Unit]
+Description=Flash host BIOS image %I (BIOS region only, host must be off)
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+TimeoutStartSec=30min
+ExecStart=/usr/libexec/rd450x-bios/rd450x-bios-uploaded %i

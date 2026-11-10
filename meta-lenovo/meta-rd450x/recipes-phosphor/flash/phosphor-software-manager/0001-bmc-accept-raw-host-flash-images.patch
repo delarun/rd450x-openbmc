@@ -1,0 +1,144 @@
+From: delarun <zadli@evileat.org>
+Subject: [PATCH] bmc: accept raw host flash images and Host images at the BMC updater
+
+The web UI uploads firmware without a target, which reaches only the
+updater at the BMC path, and users have plain BIOS ROM files, not
+tarballs with a MANIFEST. Serve BMC and host images from one updater and
+wrap an image that carries an Intel flash descriptor into a Host-purpose
+image directory (bios.rom + generated MANIFEST).
+
+Upstream-Status: Inappropriate [board-specific convenience]
+---
+--- a/bmc/item_updater.cpp	2026-11-10 21:06:17.296509830 +0400
++++ b/bmc/item_updater.cpp	2026-11-10 21:06:17.310193407 +0400
+@@ -966,7 +966,13 @@
+ 
+     createActiveAssociation(path);
+     createFunctionalAssociation(path);
+-    createUpdateableAssociation(path);
++    // When one updater serves BMC and host images, uploads go through the
++    // BMC software object; a second updateable endpoint would make bmcweb
++    // reject every upload aimed at the BMC.
++    if (type != UpdaterType::ALL)
++    {
++        createUpdateableAssociation(path);
++    }
+ 
+     auto versionId = path.substr(pos + 1);
+     auto version = "null";
+@@ -985,7 +991,7 @@
+         std::make_unique<phosphor::software::manager::Delete>(
+             bus, path, *biosVersion);
+ 
+-    if (useUpdateDBusInterface)
++    if (useUpdateDBusInterface && type != UpdaterType::ALL)
+     {
+         createUpdateObject(versionId, path);
+     }
+--- a/bmc/software_manager.cpp	2026-11-10 20:48:58.072853008 +0400
++++ b/bmc/software_manager.cpp	2026-11-10 20:48:58.086436698 +0400
+@@ -21,11 +21,16 @@
+ 
+     constexpr auto serviceName = "xyz.openbmc_project.Software.Manager";
+ 
++#ifdef HOST_BIOS_UPGRADE
++    // One updater for both: the web UI uploads without naming a target, and
++    // such uploads only reach the updater at the BMC path.
++    static_cast<void>(biosPath);
++    ItemUpdaterIntf bmcItemUpdater{ctx, bmcPath,
++                                   ItemUpdaterIntf::UpdaterType::ALL};
++#else
++    static_cast<void>(biosPath);
+     ItemUpdaterIntf bmcItemUpdater{ctx, bmcPath,
+                                    ItemUpdaterIntf::UpdaterType::BMC};
+-#ifdef HOST_BIOS_UPGRADE
+-    ItemUpdaterIntf biosItemUpdater{ctx, biosPath,
+-                                    ItemUpdaterIntf::UpdaterType::BIOS};
+ #endif // HOST_BIOS_UPGRADE
+     ctx.request_name(serviceName);
+ 
+--- a/bmc/update_manager.cpp	2026-11-10 20:48:58.074457188 +0400
++++ b/bmc/update_manager.cpp	2026-11-10 20:48:58.086498832 +0400
+@@ -11,7 +11,11 @@
+ #include <xyz/openbmc_project/Common/error.hpp>
+ #include <xyz/openbmc_project/Software/Image/error.hpp>
+ 
++#include <unistd.h>
++
++#include <array>
+ #include <filesystem>
++#include <fstream>
+ 
+ PHOSPHOR_LOG2_USING;
+ 
+@@ -45,6 +49,58 @@
+     }
+ }
+ 
++/** @brief Accept a raw host flash image in place of a tarball.
++ *
++ *  An image that carries an Intel flash descriptor is stored in the
++ *  directory as "bios.rom" next to a generated MANIFEST with the Host
++ *  purpose, as if it had been uploaded as a tarball.
++ *
++ *  @return true if the image was a raw host flash image and was stored
++ */
++static bool storeRawHostImage(int fd, const fs::path& dir,
++                              const std::string& id)
++{
++    static constexpr std::array<uint8_t, 4> signature{0x5a, 0xa5, 0xf0, 0x0f};
++    std::array<uint8_t, 4> found{};
++    if (pread(fd, found.data(), found.size(), 0x10) !=
++            static_cast<ssize_t>(found.size()) ||
++        found != signature)
++    {
++        return false;
++    }
++
++    std::ofstream rom(dir / "bios.rom", std::ios::binary | std::ios::trunc);
++    std::array<char, 65536> buf{};
++    off_t offset = 0;
++    while (true)
++    {
++        auto len = pread(fd, buf.data(), buf.size(), offset);
++        if (len < 0)
++        {
++            return false;
++        }
++        if (len == 0)
++        {
++            break;
++        }
++        rom.write(buf.data(), len);
++        offset += len;
++    }
++    rom.close();
++    if (!rom)
++    {
++        return false;
++    }
++
++    std::ofstream manifest(dir / MANIFEST_FILE_NAME, std::ios::trunc);
++    manifest
++        << "purpose=xyz.openbmc_project.Software.Version.VersionPurpose.Host\n"
++        << "version=uploaded-" << id << "\n"
++        << "MachineName=" << Version::getBMCMachine(OS_RELEASE_FILE) << "\n";
++    manifest.close();
++    return static_cast<bool>(manifest);
++}
++
+ bool verifyImagePurpose(Version::VersionPurpose purpose,
+                         ItemUpdaterIntf::UpdaterType type)
+ {
+@@ -78,8 +134,9 @@
+     tmpDirPath = tmpDir;
+     softwareUtils::RemovablePath tmpDirToRemove(tmpDirPath);
+ 
+-    // Untar tarball into the tmp dir
+-    if (!softwareUtils::unTar(image, tmpDirPath.string()))
++    // Untar tarball into the tmp dir, unless it is a raw host flash image
++    if (!storeRawHostImage(image, tmpDirPath, id) &&
++        !softwareUtils::unTar(image, tmpDirPath.string()))
+     {
+         error("Error occurred during untar");
+         processImageFailed(image, id);

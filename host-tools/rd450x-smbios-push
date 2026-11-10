@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Send the host's SMBIOS tables to the OpenBMC BMC of a Lenovo RD450X.
+
+The BIOS of this board does not hand its SMBIOS tables to the BMC, so the
+BMC knows nothing about the CPUs and DIMMs. This script, run as root on the
+host OS, reads the tables the kernel exports (the same data dmidecode
+shows) and writes them to the BMC's "/smbios" IPMI blob through the local
+IPMI interface (ipmitool, KCS). smbios-mdr on the BMC then publishes the
+CPU, DIMM and BIOS inventory.
+
+No network access to the BMC and no BMC password are needed.
+"""
+import argparse
+import struct
+import subprocess
+import sys
+import time
+
+DMI_DIR = "/sys/firmware/dmi/tables"
+OEN = [0xCF, 0xC2, 0x00]          # OpenBMC OEM number 49871
+NETFN_OEM, CMD_BLOB = 0x2E, 0x80
+OPEN, WRITE, COMMIT, CLOSE = 2, 4, 5, 6
+FLAG_WRITE = 1 << 1
+CHUNK = 96
+
+
+def crc16(data):
+    """CRC of the ipmi-blob protocol (ipmi-blob-tool, crc.cpp)."""
+    crc = 0xFFFF
+    for i in range(len(data) + 2):
+        for j in range(8):
+            xor = crc & 0x8000
+            crc = (crc << 1) & 0xFFFF
+            if i < len(data) and data[i] & (1 << (7 - j)):
+                crc += 1
+            if xor:
+                crc ^= 0x1021
+    return crc
+
+
+def blob(sub, payload=b""):
+    req = [NETFN_OEM, CMD_BLOB] + OEN + [sub]
+    if payload:
+        req += list(struct.pack("<H", crc16(payload)) + payload)
+    out = subprocess.run(
+        ["ipmitool", "raw"] + ["0x%02x" % b for b in req],
+        capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RuntimeError("blob command %d failed: %s" %
+                           (sub, (out.stderr or out.stdout).strip()))
+    rsp = bytes(int(x, 16) for x in out.stdout.split())
+    if list(rsp[:3]) != OEN:
+        raise RuntimeError("unexpected reply to blob command %d" % sub)
+    rsp = rsp[3:]
+    if not rsp:
+        return b""
+    if len(rsp) < 2 or struct.unpack("<H", rsp[:2])[0] != crc16(rsp[2:]):
+        raise RuntimeError("bad CRC in the reply to blob command %d" % sub)
+    return rsp[2:]
+
+
+def smbios_image():
+    """Entry point followed by the structure table, as smbios-mdr wants it."""
+    ep = open(DMI_DIR + "/smbios_entry_point", "rb").read()
+    table = open(DMI_DIR + "/DMI", "rb").read()
+    if ep[:5] == b"_SM3_":
+        major, minor, docrev = ep[7], ep[8], ep[9]
+    elif ep[:4] == b"_SM_":
+        major, minor, docrev = ep[6], ep[7], 0
+    else:
+        raise RuntimeError("unknown SMBIOS entry point")
+    # A 64-bit entry point whose table address is the offset of the table
+    # in this image.
+    new = bytearray(struct.pack("<5sBBBBBBBIQ", b"_SM3_", 0, 24, major, minor,
+                                docrev, 1, 0, len(table), 24))
+    new[5] = (-sum(new)) & 0xFF
+    return bytes(new) + table, (major, minor)
+
+
+def push(image):
+    session = blob(OPEN, struct.pack("<H", FLAG_WRITE) + b"/smbios\0")
+    try:
+        for off in range(0, len(image), CHUNK):
+            blob(WRITE, session + struct.pack("<I", off) +
+                 image[off:off + CHUNK])
+        blob(COMMIT, session + b"\0")
+    finally:
+        try:
+            blob(CLOSE, session)
+        except RuntimeError:
+            pass
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--retries", type=int, default=5,
+                    help="attempts before giving up (default 5)")
+    args = ap.parse_args()
+    image, version = smbios_image()
+    for attempt in range(1, args.retries + 1):
+        try:
+            push(image)
+            print("SMBIOS %d.%d tables (%d bytes) sent to the BMC" %
+                  (version[0], version[1], len(image)))
+            return 0
+        except (RuntimeError, OSError) as e:
+            print("attempt %d: %s" % (attempt, e), file=sys.stderr)
+            time.sleep(20)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

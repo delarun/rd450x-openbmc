@@ -24,7 +24,9 @@ the recovery section before you start.
 | Mainboard FRU inventory, LEDs | Works |
 | Virtual media (ISO over USB) | Works (about 0.9 MB/s) |
 | BIOS flashing from the BMC (`rd450x-bios`, BIOS region only) | Works (read, write and restore verified) |
-| PSU telemetry, CPU/DIMM inventory | Not implemented |
+| BIOS update from the web UI / Redfish (plain ROM file) | Upload path verified up to the power check; the write itself is the `rd450x-bios` one |
+| CPU, DIMM and BIOS version inventory (SMBIOS pushed from the host OS) | Works |
+| PSU telemetry | Not implemented |
 | Dedicated IPMI LAN port | Untested |
 
 ## Things worth knowing about this board
@@ -126,11 +128,35 @@ rd450x-bios write  /tmp/new.rom  # write the BIOS region (about 2 minutes)
   BMC was reset by its watchdog once in the middle of a read; the cause was
   not found and it did not happen again in further runs.
 
+### From the web UI
+
+Operations -> Firmware accepts a plain 16 MB BIOS image (no tarball or
+MANIFEST needed): an upload that carries an Intel flash descriptor is treated
+as a host image and written with `rd450x-bios write`. Power the host off
+first; with the host on the update fails and nothing is touched. The reason
+is in the BMC journal (`journalctl -u 'obmc-flash-host-bios@*'`).
+
+## CPU and memory inventory
+
+The BIOS does not hand its SMBIOS tables to the BMC, so a helper on the host
+OS does: `host-tools/rd450x-smbios-push` reads the tables the kernel exports
+(what `dmidecode` shows) and writes them to the BMC through the local IPMI
+interface (`ipmitool`, KCS; no network access or BMC password). `smbios-mdr`
+on the BMC turns them into the processor, DIMM and BIOS version inventory
+shown in the web UI and Redfish. The BMC keeps the last tables it received.
+
+```sh
+install -m 0755 host-tools/rd450x-smbios-push /usr/local/sbin/
+install -m 0644 host-tools/rd450x-smbios-push.service /etc/systemd/system/
+systemctl enable --now rd450x-smbios-push.service   # resend on every boot
+```
+
 ## Layout
 
 - `meta-lenovo/meta-rd450x/` — the machine layer: machine config, device tree,
   kernel config fragments, sensor and fan-control configuration, patches.
 - `build-env/` — Dockerfile and wrapper for a reproducible build container.
+- `host-tools/` — helper for the host OS that sends the SMBIOS tables to the BMC.
 
 ## License
 

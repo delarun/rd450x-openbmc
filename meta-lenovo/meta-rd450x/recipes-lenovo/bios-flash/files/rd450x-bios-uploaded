@@ -1,0 +1,19 @@
+#!/bin/sh
+# Called by obmc-flash-host-bios@ID.service for a host image uploaded
+# through the web UI or Redfish: write its BIOS region with rd450x-bios.
+dir=/tmp/images/$1
+for f in "$dir"/*; do
+    case "$f" in
+    */MANIFEST | *.sig | */publickey) ;;
+    *)
+        [ -f "$f" ] || continue
+        /usr/sbin/rd450x-bios write "$f"
+        rc=$?
+        # The image sits in RAM; drop it once it is written or refused.
+        rm -f "$f"
+        exit $rc
+        ;;
+    esac
+done
+echo "rd450x-bios: no image file in $dir" >&2
+exit 1

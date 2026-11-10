@@ -1,0 +1,10 @@
+[Unit]
+Description=Send SMBIOS tables to the BMC (CPU and DIMM inventory)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rd450x-smbios-push
+
+[Install]
+WantedBy=multi-user.target
