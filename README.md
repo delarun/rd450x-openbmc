@@ -20,13 +20,13 @@ the recovery section before you start.
 | Voltages: 12 V, 5 V, 3.3 V, 5 V aux, 3.3 V standby | Works |
 | Remote KVM (video + USB keyboard) | Works |
 | Serial over LAN (host COM1) | Works |
-| Host IPMI over KCS (port 0xCA2) | Works, device ID is a placeholder |
+| Host IPMI over KCS (port 0xCA2) | Works, device ID is a placeholder; the BIOS reports the BMC as working |
 | Mainboard FRU inventory, LEDs | Works |
 | Virtual media (ISO over USB) | Works (about 0.9 MB/s) |
 | BIOS flashing from the BMC (`rd450x-bios`, BIOS region only) | Works (read, write and restore verified) |
 | BIOS update from the web UI / Redfish (plain ROM file) | Upload path verified up to the power check; the write itself is the `rd450x-bios` one |
-| CPU, DIMM and BIOS version inventory (SMBIOS pushed from the host OS) | Works |
-| PSU telemetry | Not implemented |
+| CPU, DIMM and BIOS version inventory (SMBIOS sent by the BIOS, or pushed from the host OS) | Works |
+| PSU telemetry | Not available: the test board runs from a plain ATX supply, and the ME rejects the PMBus proxy command (0xD9) the stock firmware used |
 | Dedicated IPMI LAN port | Untested |
 
 ## Things worth knowing about this board
@@ -138,12 +138,45 @@ is in the BMC journal (`journalctl -u 'obmc-flash-host-bios@*'`).
 
 ## CPU and memory inventory
 
-The BIOS does not hand its SMBIOS tables to the BMC, so a helper on the host
-OS does: `host-tools/rd450x-smbios-push` reads the tables the kernel exports
-(what `dmidecode` shows) and writes them to the BMC through the local IPMI
-interface (`ipmitool`, KCS; no network access or BMC password). `smbios-mdr`
-on the BMC turns them into the processor, DIMM and BIOS version inventory
-shown in the web UI and Redfish. The BMC keeps the last tables it received.
+`smbios-mdr` on the BMC turns the host's SMBIOS tables into the processor,
+DIMM and BIOS version inventory shown in the web UI and Redfish. The BMC keeps
+the last tables it received. There are two ways to get them there.
+
+### From the BIOS
+
+This applies to the modified BIOS built from the Supermicro X10DRX one
+(`rd450drx_NC.rom`). It speaks Supermicro's out-of-band dialect to the BMC
+(NetFn 0x30, command 0xA0), and `rd450x-ipmi-oem` implements the part of it
+that uploads files:
+
+| Request | Meaning |
+|---|---|
+| `A0 20 <query>` | does the BMC already hold the file? (04 SMBIOS, 05 device report, 08 asset info) |
+| `A0 26 <type> <size:u32>` | start an upload |
+| `A0 27 <type> <offset:u32> <data>` | one 64-byte chunk |
+| `A0 28 <type>` | finish; the reply is 0 busy, 1 error, anything else done |
+
+- The BIOS only sends the SMBIOS tables (type 1) when **CSM Support is
+  enabled** in Setup: its module looks for the legacy `_SM_` anchor in the
+  F000 segment, which does not exist without CSM. UEFI boot keeps working.
+- The upload takes about 35 seconds of boot time the first time. Afterwards
+  the BIOS compares a checksum and skips it until the hardware changes.
+- The asset information (type 4, the list of SATA drives) is stored in
+  `/var/lib/rd450x-oob/` on the BMC but not shown anywhere yet. The device
+  report (type 2) is not sent: the reply the BIOS expects is not known.
+- The other Supermicro commands the BIOS sends (0x30 0x02, 0x05, 0x70, 0x97,
+  0xA1) are still refused, as is everything that looks like a download from
+  the BMC.
+
+The same package answers Get Self Test Results and Set ACPI Power State, so
+the BIOS no longer shows "IPMI STATUS: Not Working" / "BMC soft fail".
+
+### From the host OS
+
+For any other BIOS, or without CSM: `host-tools/rd450x-smbios-push` reads the
+tables the kernel exports (what `dmidecode` shows) and writes them to the BMC
+through the local IPMI interface (`ipmitool`, KCS; no network access or BMC
+password).
 
 ```sh
 install -m 0755 host-tools/rd450x-smbios-push /usr/local/sbin/

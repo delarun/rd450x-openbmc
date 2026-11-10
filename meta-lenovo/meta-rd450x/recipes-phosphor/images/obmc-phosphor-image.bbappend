@@ -1,7 +1,7 @@
 # 32 MB flash on an ARM926: drop features the board does not need.
 IMAGE_FEATURES:remove:rd450x = "obmc-telemetry obmc-tpm obmc-dmtf-pmci obmc-dmtf-spdm obmc-user-mgmt-ldap obmc-remote-logging-mgmt"
 
-OBMC_IMAGE_EXTRA_INSTALL:append:rd450x = " rd450x-uart-routing rd450x-bios phosphor-ipmi-ipmb dbus-sensors smbios-mdr phosphor-ipmi-blobs"
+OBMC_IMAGE_EXTRA_INSTALL:append:rd450x = " rd450x-uart-routing rd450x-bios phosphor-ipmi-ipmb dbus-sensors smbios-mdr phosphor-ipmi-blobs rd450x-ipmi-oem"
 
 # The writable filesystem is only 2 MB: a single core dump (bmcweb: 2.7 MB)
 # fills it and blocks the crashed service from restarting while it is being
