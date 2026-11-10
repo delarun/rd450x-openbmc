@@ -4,3 +4,4 @@
 # board-specific (serial numbers, keys, password hashes)
 /stock-firmware/
 /recon/
+__pycache__/
