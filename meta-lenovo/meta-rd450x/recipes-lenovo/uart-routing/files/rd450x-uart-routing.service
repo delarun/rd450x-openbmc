@@ -1,0 +1,11 @@
+[Unit]
+Description=Route host UART1 to BMC UART3 for serial over LAN
+Before=obmc-console@ttyS2.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/rd450x-uart-routing/rd450x-uart-routing.sh
+
+[Install]
+WantedBy=multi-user.target

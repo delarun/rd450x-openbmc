@@ -1,0 +1,103 @@
+ipmb: add Node Manager CPU temperature class
+
+The Intel ME on Grantley boards does not expose the CPU temperatures as
+IPMI sensors. They are read with the Node Manager command "Get CPU and
+Memory Temperature" (NetFn 0x2e, cmd 0x4b), which returns the margin to
+Tjmax per CPU. Add the class "NMCpuTemp"; "Address" is the CPU index.
+
+Upstream-Status: Pending
+
+diff --git a/src/ipmb/IpmbSensor.cpp b/src/ipmb/IpmbSensor.cpp
+index 0fb7ec4c8..e403860e0 100644
+--- a/src/ipmb/IpmbSensor.cpp
++++ b/src/ipmb/IpmbSensor.cpp
+@@ -247,6 +247,20 @@ void IpmbSensor::loadDefaults()
+                     0x02,          0x00, 0x00, 0x00};
+         readingFormat = ReadingFormat::byte3;
+     }
++    else if (type == IpmbType::nmCpuTemp)
++    {
++        // Intel Node Manager "Get CPU and Memory Temperature". Both CPUs
++        // are requested and no DIMMs; the reply carries one byte per CPU,
++        // the margin to Tjmax in degrees C (0xff: not available).
++        // deviceAddress is the CPU index (0 or 1).
++        commandAddress = meAddress;
++        netfn = ipmi::me_bridge::netFn;
++        command = ipmi::me_bridge::getCpuMemTemp;
++        commandData = {0x57, 0x01, 0x00, 0x03, 0x00, 0x00,
++                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
++        readingFormat = (deviceAddress == 0) ? ReadingFormat::byte3
++                                             : ReadingFormat::byte4;
++    }
+     else if (type == IpmbType::SMPro)
+     {
+         // This is an Ampere SMPro reachable via a BMC.  For example,
+@@ -318,9 +332,27 @@ bool IpmbSensor::processReading(ReadingFormat readingFormat, uint8_t command,
+                 }
+                 return false;
+             }
++            if (command == ipmi::me_bridge::getCpuMemTemp && data[3] == 0xff)
++            {
++                // Node Manager: CPU absent or temperature not available
++                return false;
++            }
+             resp = data[3];
+             return true;
+         }
++        case (ReadingFormat::byte4):
++        {
++            if (data.size() < 5 || data[4] == 0xff)
++            {
++                if (errCount == 0U)
++                {
++                    lg2::error("Invalid data returned");
++                }
++                return false;
++            }
++            resp = data[4];
++            return true;
++        }
+         case (ReadingFormat::nineBit):
+         case (ReadingFormat::tenBit):
+         case (ReadingFormat::fifteenBit):
+@@ -533,6 +565,10 @@ bool IpmbSensor::sensorClassType(const std::string& sensorClass)
+     {
+         type = IpmbType::meSensor;
+     }
++    else if (sensorClass == "NMCpuTemp")
++    {
++        type = IpmbType::nmCpuTemp;
++    }
+     else if (sensorClass == "SMPro")
+     {
+         type = IpmbType::SMPro;
+diff --git a/src/ipmb/IpmbSensor.hpp b/src/ipmb/IpmbSensor.hpp
+index c5844cfb2..73d89aeb3 100644
+--- a/src/ipmb/IpmbSensor.hpp
++++ b/src/ipmb/IpmbSensor.hpp
+@@ -29,7 +29,8 @@ enum class IpmbType
+     IR38363VR,
+     ADM1278HSC,
+     mpsVR,
+-    SMPro
++    SMPro,
++    nmCpuTemp
+ };
+ 
+ enum class IpmbSubType
+@@ -46,6 +47,7 @@ enum class ReadingFormat
+ {
+     byte0,
+     byte3,
++    byte4,
+     nineBit,
+     tenBit,
+     elevenBit,
+@@ -87,6 +89,7 @@ namespace me_bridge
+ {
+ constexpr uint8_t netFn = 0x2e;
+ constexpr uint8_t sendRawPmbus = 0xd9;
++constexpr uint8_t getCpuMemTemp = 0x4b;
+ } // namespace me_bridge
+ } // namespace ipmi
+ 

@@ -1,0 +1,460 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Lenovo ThinkServer RD450X BMC (ASPEED AST2400)
+ *
+ * Reverse engineered from the board's stock AMI MegaRAC firmware 3.24.4421
+ * (libipmipdk / libipmipar, variant "ast2400evb_ami") and from the live
+ * GPIO, PWM and ADC state of a running board. See recon/hardware-map.md.
+ *
+ * Items marked UNVERIFIED are assumptions still to be checked on hardware.
+ */
+/dts-v1/;
+
+#include "aspeed-g4.dtsi"
+#include <dt-bindings/gpio/aspeed-gpio.h>
+#include <dt-bindings/i2c/i2c.h>
+
+/ {
+	model = "Lenovo ThinkServer RD450X BMC";
+	compatible = "lenovo,rd450x-bmc", "aspeed,ast2400";
+
+	aliases {
+		serial2 = &uart3;
+		serial4 = &uart5;
+	};
+
+	chosen {
+		stdout-path = &uart5;
+		bootargs = "console=ttyS4,115200 earlycon";
+	};
+
+	memory@40000000 {
+		/* UNVERIFIED: 256 MB assumed; the stock kernel used mem=210M */
+		reg = <0x40000000 0x10000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		/*
+		 * Capture buffers of the video engine (remote KVM). The host VGA
+		 * memory (16 MB at the top of the 256 MB DRAM) is already left out
+		 * by U-Boot, which reports 240 MB.
+		 */
+		video_engine_memory: jpegbuffer {
+			size = <0x02000000>;	/* 32M */
+			alignment = <0x01000000>;
+			compatible = "shared-dma-pool";
+			reusable;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		identify {
+			gpios = <&gpio ASPEED_GPIO(H, 0) GPIO_ACTIVE_LOW>;
+		};
+
+		/* Stock firmware blinks this one as a status/heartbeat LED */
+		heartbeat {
+			gpios = <&gpio ASPEED_GPIO(H, 1) GPIO_ACTIVE_LOW>;
+		};
+
+		fault {
+			gpios = <&gpio ASPEED_GPIO(H, 3) GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	/* 3.3V standby, 5V aux, 3.3V, 5V, 12V (through resistor dividers) */
+	/*
+	 * hwmon numbers the inputs in1..in5 in the order listed here, and the
+	 * entity-manager ADC "Index" values (0..4) follow that order, not the
+	 * ADC channel numbers.
+	 */
+	iio-hwmon {
+		compatible = "iio-hwmon";
+		io-channels = <&adc 10>, <&adc 11>, <&adc 12>, <&adc 13>,
+			      <&adc 14>;
+	};
+};
+
+&fmc {
+	status = "okay";
+
+	flash@0 {
+		status = "okay";
+		m25p,fast-read;
+		label = "bmc";
+		spi-max-frequency = <50000000>;
+
+		/*
+		 * Like openbmc-flash-layout.dtsi, but with a larger kernel and
+		 * read-only filesystem at the expense of the writable one: the
+		 * stock 32 MB layout has no room for remote KVM. Must match
+		 * FLASH_ROFS_OFFSET / FLASH_RWFS_OFFSET in the machine config.
+		 */
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			u-boot@0 {
+				reg = <0x0 0x60000>;
+				label = "u-boot";
+			};
+
+			u-boot-env@60000 {
+				reg = <0x60000 0x20000>;
+				label = "u-boot-env";
+			};
+
+			kernel@80000 {
+				reg = <0x80000 0x480000>;
+				label = "kernel";
+			};
+
+			rofs@500000 {
+				reg = <0x500000 0x1900000>;
+				label = "rofs";
+			};
+
+			rwfs@1e00000 {
+				reg = <0x1e00000 0x200000>;
+				label = "rwfs";
+			};
+		};
+	};
+};
+
+/* BMC debug console (stock: ttyS4 @ 38400) */
+&uart5 {
+	status = "okay";
+};
+
+/*
+ * Host serial / SOL: the host owns UART1 over LPC, and the stock firmware
+ * cross-connects UART1 and UART3 through the LPC UART routing register.
+ */
+/*
+ * UART1 and UART2 are the host's COM1/COM2 (0x3f8/0x2f8 over LPC). The BMC
+ * does not use them itself, but their clocks are gated unless the nodes are
+ * enabled, and then the host's ports find a 16550 that never shifts a byte
+ * out (seen on the board: host tx counter frozen, nothing reaches UART3).
+ */
+&uart1 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart3 {
+	status = "okay";
+};
+
+&uart_routing {
+	status = "okay";
+};
+
+/* Shared with the host's Intel NIC over NC-SI */
+&mac0 {
+	status = "okay";
+	use-ncsi;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_rmii1_default>;
+};
+
+/* Dedicated management port with its own PHY. UNVERIFIED: RGMII assumed */
+&mac1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_rgmii2_default &pinctrl_mdio2_default>;
+};
+
+&adc {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_adc10_default
+		     &pinctrl_adc11_default
+		     &pinctrl_adc12_default
+		     &pinctrl_adc13_default
+		     &pinctrl_adc14_default>;
+};
+
+/* UNVERIFIED: the stock firmware reads CPU temperatures through the ME */
+&peci0 {
+	status = "okay";
+};
+
+&lpc_ctrl {
+	status = "okay";
+};
+
+/*
+ * The stock firmware exposes KCS and BT to the host. aspeed-g4.dtsi has no
+ * KCS nodes, so KCS3 is described here (same LPC registers as the AST2500).
+ * The stock driver puts KCS3 at 0xca2/0xca3 and BT at 0xe4.
+ */
+&lpc {
+	kcs3: kcs@2c {
+		compatible = "aspeed,ast2400-kcs-bmc-v2";
+		reg = <0x2c 0x1>, <0x38 0x1>, <0x44 0x1>;
+		interrupts = <8>;
+		clocks = <&syscon ASPEED_CLK_GATE_LCLK>;
+		aspeed,lpc-io-reg = <0xca2>;
+	};
+};
+
+&ibt {
+	status = "okay";
+};
+
+&lpc_snoop {
+	status = "okay";
+	snoop-ports = <0x80>;
+};
+
+/*
+ * Each fan has its own PWM output, numbered like its tach input.
+ * PWM2/tach2 are not used on this board.
+ */
+/* Remote KVM: video capture of the host VGA output */
+&video {
+	status = "okay";
+	memory-region = <&video_engine_memory>;
+};
+
+/* Remote KVM: virtual USB hub towards the host (keyboard, mouse, media) */
+&vhub {
+	status = "okay";
+};
+
+&pwm_tacho {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm0_default
+		     &pinctrl_pwm1_default
+		     &pinctrl_pwm3_default
+		     &pinctrl_pwm4_default
+		     &pinctrl_pwm5_default
+		     &pinctrl_pwm6_default>;
+
+	/* CPU0_FAN */
+	fan@0 {
+		reg = <0x00>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x00>;
+	};
+
+	/* CPU1_FAN */
+	fan@1 {
+		reg = <0x01>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x01>;
+	};
+
+	/* SYS_FAN1 */
+	fan@3 {
+		reg = <0x03>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x03>;
+	};
+
+	/* SYS_FAN2 */
+	fan@4 {
+		reg = <0x04>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x04>;
+	};
+
+	/* SYS_FAN3 */
+	fan@5 {
+		reg = <0x05>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x05>;
+	};
+
+	/* SYS_FAN4 */
+	fan@6 {
+		reg = <0x06>;
+		aspeed,fan-tach-ch = /bits/ 8 <0x06>;
+	};
+};
+
+&gpio {
+	/*
+	 * Front-panel reset (D0 -> D1) and power (D2 -> D3) buttons: the stock
+	 * firmware uses the SoC's hardware pass-through, but with the mainline
+	 * pinctrl driver a pin claimed for pass-through cannot also be requested
+	 * as a GPIO, and the BMC has to read the buttons and drive the outputs.
+	 * So the pins are plain GPIOs and x86-power-control forwards the buttons
+	 * in software (button-passthrough option).
+	 */
+	gpio-line-names =
+	/*A0-A7*/	"", "", "", "ID_BUTTON_N", "", "", "", "",
+	/*B0-B7*/	"", "", "FAN_EVENT_N", "", "", "", "", "",
+	/*C0-C7*/	"", "", "", "", "", "", "NCSI_SEL", "",
+	/*D0-D7*/	"RESET_BUTTON_N", "RESET_OUT_N", "POWER_BUTTON_N",
+			"POWER_OUT_N", "", "", "", "",
+	/*E0-E7*/	"", "", "", "", "", "", "", "",
+	/*F0-F7*/	"", "", "", "", "", "PS_PWROK", "", "",
+	/*G0-G7*/	"", "", "", "", "CPU_ERR2_N", "CPU_CATERR_N", "",
+			"NCSI_CARD_DET",
+	/*H0-H7*/	"", "", "", "", "", "", "BIOS_SPI_SEL", "",
+	/*I0-I7*/	"", "", "", "", "", "", "", "",
+	/*J0-J7*/	"", "", "", "", "", "", "", "",
+	/*K0-K7*/	"", "", "", "", "", "", "", "",
+	/*L0-L7*/	"", "", "", "", "", "", "", "",
+	/*M0-M7*/	"", "", "", "", "", "", "", "",
+	/*N0-N7*/	"", "", "", "", "", "", "", "",
+	/*O0-O7*/	"", "", "", "", "", "", "", "",
+	/*P0-P7*/	"", "", "CPU0_PROCHOT_N", "", "", "CPU1_PROCHOT_N", "",
+			"MEM_EVENT_N",
+	/*Q0-Q7*/	"", "", "", "", "", "", "PSU1_PRSNT_N", "PSU2_PRSNT_N";
+
+	/* High = host owns its BIOS flash. Never leave this low. */
+	bios-spi-sel-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(H, 6) GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "BIOS_SPI_SEL";
+	};
+
+	/* Keeps the NC-SI path on the onboard NIC, as found on the live board */
+	ncsi-sel-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(C, 6) GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "NCSI_SEL";
+	};
+
+	/*
+	 * Outputs of unknown purpose that the stock firmware drives at init.
+	 * They are held at the levels read from the running stock firmware.
+	 */
+	stock-c7-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(C, 7) GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	stock-d5-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(D, 5) GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	stock-g0-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(G, 0) GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	stock-g1-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(G, 1) GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	stock-h2-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(H, 2) GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	stock-h4-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(H, 4) GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+
+	stock-h5-hog {
+		gpio-hog;
+		gpios = <ASPEED_GPIO(H, 5) GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+/* Primary IPMB (BMC at 0x20) and the inlet temperature sensor */
+&i2c0 {
+	status = "okay";
+
+	/*
+	 * Board temperature sensor, found by probing: an ADM1032-class chip
+	 * (manufacturer ID 0x41) with a local and a remote channel. The stock
+	 * configuration names an LM75 at 0x49, which does not answer.
+	 */
+	temperature-sensor@4c {
+		compatible = "adi,adm1032";
+		reg = <0x4c>;
+	};
+};
+
+/* Mux at 0x76 towards an optional accelerator card */
+&i2c1 {
+	status = "okay";
+};
+
+/* CPU and DDR voltage regulators: IR3581 at 0x28/0x2e, IR3570B at 0x2a/0x30 */
+&i2c2 {
+	status = "okay";
+};
+
+&i2c3 {
+	status = "okay";
+};
+
+/*
+ * IPMB link to the Intel ME (Node Manager) at 0x2c. Verified on the board:
+ * the ME answers on this bus only and polls the BMC at 0x20. CPU, DIMM and
+ * PCH temperatures and the PSU telemetry are read through it.
+ */
+&i2c4 {
+	status = "okay";
+
+	ipmb@10 {
+		compatible = "ipmb-dev";
+		reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+		i2c-protocol;
+	};
+};
+
+&i2c5 {
+	status = "okay";
+};
+
+/*
+ * Front/rear backplane: controllers at 0x30/0x38 and FRU EEPROMs that the
+ * stock firmware addresses with one offset byte. Their real capacity is
+ * unknown, so they are read-only.
+ */
+&i2c6 {
+	status = "okay";
+
+	eeprom@54 {
+		compatible = "atmel,24c02";
+		reg = <0x54>;
+		read-only;
+	};
+
+	eeprom@56 {
+		compatible = "atmel,24c02";
+		reg = <0x56>;
+		read-only;
+	};
+};
+
+&i2c7 {
+	status = "okay";
+};
+
+/* Mainboard FRU EEPROM (two offset bytes, 32-byte pages in the stock code) */
+&i2c8 {
+	status = "okay";
+
+	eeprom@57 {
+		compatible = "atmel,24c64";
+		reg = <0x57>;
+		pagesize = <32>;
+		read-only;
+	};
+};

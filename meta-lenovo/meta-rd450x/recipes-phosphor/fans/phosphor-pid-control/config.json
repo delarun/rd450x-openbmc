@@ -1,0 +1,386 @@
+{
+  "sensors": [
+    {
+      "name": "CPU0_FAN",
+      "type": "fan",
+      "readPath": "/xyz/openbmc_project/sensors/fan_tach/CPU0_FAN",
+      "writePath": "/sys/devices/platform/ahb/ahb:apb/1e786000.pwm-tacho-controller/hwmon/**/pwm1",
+      "min": 0,
+      "max": 255,
+      "ignoreDbusMinMax": true,
+      "timeout": 8
+    },
+    {
+      "name": "CPU1_FAN",
+      "type": "fan",
+      "readPath": "/xyz/openbmc_project/sensors/fan_tach/CPU1_FAN",
+      "writePath": "/sys/devices/platform/ahb/ahb:apb/1e786000.pwm-tacho-controller/hwmon/**/pwm2",
+      "min": 0,
+      "max": 255,
+      "ignoreDbusMinMax": true,
+      "timeout": 8
+    },
+    {
+      "name": "SYS_FAN2",
+      "type": "fan",
+      "readPath": "/xyz/openbmc_project/sensors/fan_tach/SYS_FAN2",
+      "writePath": "/sys/devices/platform/ahb/ahb:apb/1e786000.pwm-tacho-controller/hwmon/**/pwm5",
+      "min": 0,
+      "max": 255,
+      "ignoreDbusMinMax": true,
+      "timeout": 8
+    },
+    {
+      "name": "SYS_FAN3",
+      "type": "fan",
+      "readPath": "/xyz/openbmc_project/sensors/fan_tach/SYS_FAN3",
+      "writePath": "/sys/devices/platform/ahb/ahb:apb/1e786000.pwm-tacho-controller/hwmon/**/pwm6",
+      "min": 0,
+      "max": 255,
+      "ignoreDbusMinMax": true,
+      "timeout": 8
+    },
+    {
+      "name": "SYS_FAN4",
+      "type": "fan",
+      "readPath": "/xyz/openbmc_project/sensors/fan_tach/SYS_FAN4",
+      "writePath": "/sys/devices/platform/ahb/ahb:apb/1e786000.pwm-tacho-controller/hwmon/**/pwm7",
+      "min": 0,
+      "max": 255,
+      "ignoreDbusMinMax": true,
+      "timeout": 8
+    },
+    {
+      "name": "CPU0_Temp",
+      "type": "temp",
+      "readPath": "/xyz/openbmc_project/sensors/temperature/CPU0_Temp",
+      "writePath": "",
+      "min": 0,
+      "max": 0,
+      "ignoreDbusMinMax": true,
+      "timeout": 0
+    },
+    {
+      "name": "CPU1_Temp",
+      "type": "temp",
+      "readPath": "/xyz/openbmc_project/sensors/temperature/CPU1_Temp",
+      "writePath": "",
+      "min": 0,
+      "max": 0,
+      "ignoreDbusMinMax": true,
+      "timeout": 0
+    },
+    {
+      "name": "PCH_Temp",
+      "type": "temp",
+      "readPath": "/xyz/openbmc_project/sensors/temperature/PCH_Temp",
+      "writePath": "",
+      "min": 0,
+      "max": 0,
+      "ignoreDbusMinMax": true,
+      "timeout": 0
+    },
+    {
+      "name": "Board_Temp",
+      "type": "temp",
+      "readPath": "/xyz/openbmc_project/sensors/temperature/Board_Temp",
+      "writePath": "",
+      "min": 0,
+      "max": 0,
+      "ignoreDbusMinMax": true,
+      "timeout": 0
+    }
+  ],
+  "zones": [
+    {
+      "id": 0,
+      "minThermalOutput": 30.0,
+      "failsafePercent": 100.0,
+      "pids": [
+        {
+          "name": "CPU0_FAN",
+          "type": "fan",
+          "inputs": [
+            "CPU0_FAN"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 0.1,
+            "proportionalCoeff": 0.0,
+            "integralCoeff": 0.0,
+            "derivativeCoeff": 0.0,
+            "feedFwdOffsetCoeff": 0.0,
+            "feedFwdGainCoeff": 1.0,
+            "integralLimit_min": 0.0,
+            "integralLimit_max": 0.0,
+            "outLim_min": 30.0,
+            "outLim_max": 100.0,
+            "slewNeg": 0.0,
+            "slewPos": 0.0
+          }
+        },
+        {
+          "name": "CPU1_FAN",
+          "type": "fan",
+          "inputs": [
+            "CPU1_FAN"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 0.1,
+            "proportionalCoeff": 0.0,
+            "integralCoeff": 0.0,
+            "derivativeCoeff": 0.0,
+            "feedFwdOffsetCoeff": 0.0,
+            "feedFwdGainCoeff": 1.0,
+            "integralLimit_min": 0.0,
+            "integralLimit_max": 0.0,
+            "outLim_min": 30.0,
+            "outLim_max": 100.0,
+            "slewNeg": 0.0,
+            "slewPos": 0.0
+          }
+        },
+        {
+          "name": "CPU0_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "CPU0_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 40,
+              "1": 50,
+              "2": 60,
+              "3": 70,
+              "4": 80,
+              "5": 85
+            },
+            "output": {
+              "0": 30,
+              "1": 35,
+              "2": 50,
+              "3": 70,
+              "4": 90,
+              "5": 100
+            }
+          }
+        },
+        {
+          "name": "CPU1_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "CPU1_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 40,
+              "1": 50,
+              "2": 60,
+              "3": 70,
+              "4": 80,
+              "5": 85
+            },
+            "output": {
+              "0": 30,
+              "1": 35,
+              "2": 50,
+              "3": 70,
+              "4": 90,
+              "5": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "minThermalOutput": 30.0,
+      "failsafePercent": 100.0,
+      "pids": [
+        {
+          "name": "SYS_FAN2",
+          "type": "fan",
+          "inputs": [
+            "SYS_FAN2"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 0.1,
+            "proportionalCoeff": 0.0,
+            "integralCoeff": 0.0,
+            "derivativeCoeff": 0.0,
+            "feedFwdOffsetCoeff": 0.0,
+            "feedFwdGainCoeff": 1.0,
+            "integralLimit_min": 0.0,
+            "integralLimit_max": 0.0,
+            "outLim_min": 30.0,
+            "outLim_max": 100.0,
+            "slewNeg": 0.0,
+            "slewPos": 0.0
+          }
+        },
+        {
+          "name": "SYS_FAN3",
+          "type": "fan",
+          "inputs": [
+            "SYS_FAN3"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 0.1,
+            "proportionalCoeff": 0.0,
+            "integralCoeff": 0.0,
+            "derivativeCoeff": 0.0,
+            "feedFwdOffsetCoeff": 0.0,
+            "feedFwdGainCoeff": 1.0,
+            "integralLimit_min": 0.0,
+            "integralLimit_max": 0.0,
+            "outLim_min": 30.0,
+            "outLim_max": 100.0,
+            "slewNeg": 0.0,
+            "slewPos": 0.0
+          }
+        },
+        {
+          "name": "SYS_FAN4",
+          "type": "fan",
+          "inputs": [
+            "SYS_FAN4"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 0.1,
+            "proportionalCoeff": 0.0,
+            "integralCoeff": 0.0,
+            "derivativeCoeff": 0.0,
+            "feedFwdOffsetCoeff": 0.0,
+            "feedFwdGainCoeff": 1.0,
+            "integralLimit_min": 0.0,
+            "integralLimit_max": 0.0,
+            "outLim_min": 30.0,
+            "outLim_max": 100.0,
+            "slewNeg": 0.0,
+            "slewPos": 0.0
+          }
+        },
+        {
+          "name": "Sys_CPU0_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "CPU0_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 50,
+              "1": 60,
+              "2": 70,
+              "3": 80,
+              "4": 90
+            },
+            "output": {
+              "0": 30,
+              "1": 35,
+              "2": 50,
+              "3": 75,
+              "4": 100
+            }
+          }
+        },
+        {
+          "name": "Sys_CPU1_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "CPU1_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 50,
+              "1": 60,
+              "2": 70,
+              "3": 80,
+              "4": 90
+            },
+            "output": {
+              "0": 30,
+              "1": 35,
+              "2": 50,
+              "3": 75,
+              "4": 100
+            }
+          }
+        },
+        {
+          "name": "PCH_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "PCH_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 60,
+              "1": 70,
+              "2": 80,
+              "3": 90
+            },
+            "output": {
+              "0": 30,
+              "1": 45,
+              "2": 70,
+              "3": 100
+            }
+          }
+        },
+        {
+          "name": "Board_Curve",
+          "type": "stepwise",
+          "inputs": [
+            "Board_Temp"
+          ],
+          "setpoint": 30.0,
+          "pid": {
+            "samplePeriod": 1.0,
+            "positiveHysteresis": 0.0,
+            "negativeHysteresis": 3.0,
+            "isCeiling": false,
+            "reading": {
+              "0": 55,
+              "1": 65,
+              "2": 75
+            },
+            "output": {
+              "0": 30,
+              "1": 50,
+              "2": 100
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

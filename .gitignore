@@ -1,0 +1,6 @@
+# Upstream OpenBMC checkout (see README for the pinned commit)
+/openbmc/
+# Stock firmware dumps and data read from the live board: proprietary and
+# board-specific (serial numbers, keys, password hashes)
+/stock-firmware/
+/recon/

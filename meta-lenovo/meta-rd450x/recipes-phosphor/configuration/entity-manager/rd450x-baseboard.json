@@ -1,0 +1,80 @@
+{
+    "Exposes": [
+        {
+            "Address": "0x0",
+            "Class": "NMCpuTemp",
+            "Name": "CPU0_Temp",
+            "PowerState": "On",
+            "ScaleValue": -1.0,
+            "OffsetValue": 100.0,
+            "Thresholds": [
+                {
+                    "Direction": "greater than",
+                    "Name": "upper critical",
+                    "Severity": 1,
+                    "Value": 95
+                },
+                {
+                    "Direction": "greater than",
+                    "Name": "upper non critical",
+                    "Severity": 0,
+                    "Value": 90
+                }
+            ],
+            "Type": "IpmbSensor"
+        },
+        {
+            "Address": "0x1",
+            "Class": "NMCpuTemp",
+            "Name": "CPU1_Temp",
+            "PowerState": "On",
+            "ScaleValue": -1.0,
+            "OffsetValue": 100.0,
+            "Thresholds": [
+                {
+                    "Direction": "greater than",
+                    "Name": "upper critical",
+                    "Severity": 1,
+                    "Value": 95
+                },
+                {
+                    "Direction": "greater than",
+                    "Name": "upper non critical",
+                    "Severity": 0,
+                    "Value": 90
+                }
+            ],
+            "Type": "IpmbSensor"
+        },
+        {
+            "Address": "0x8",
+            "Class": "METemp",
+            "Name": "PCH_Temp",
+            "PowerState": "On",
+            "Thresholds": [
+                {
+                    "Direction": "greater than",
+                    "Name": "upper critical",
+                    "Severity": 1,
+                    "Value": 105
+                },
+                {
+                    "Direction": "greater than",
+                    "Name": "upper non critical",
+                    "Severity": 0,
+                    "Value": 100
+                }
+            ],
+            "Type": "IpmbSensor"
+        }
+    ],
+    "Name": "RD450X Chassis",
+    "Probe": "TRUE",
+    "Type": "Chassis",
+    "xyz.openbmc_project.Inventory.Decorator.Asset": {
+        "Manufacturer": "Lenovo",
+        "Model": "ThinkServer RD450X",
+        "PartNumber": "",
+        "SerialNumber": ""
+    }
+}
